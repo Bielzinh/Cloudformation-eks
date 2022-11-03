@@ -1,0 +1,92 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Sets Up EKS Cluster
+Parameters:
+  
+  Client:
+    Type: String
+ 
+  Stage:
+    Description: Stage name
+    Type: String
+ 
+  AmiTypeInstance:
+    Description: Ami type used in Node Groups
+    Type: String
+
+  DesiredSize:
+    Description: The current number of nodes that the managed node group should maintain.
+    Type: String
+
+  MaxSize:
+    Description: The maximum number of nodes that the managed node group can scale out to.
+    Type: String
+
+  MinSize:
+    Description: The minimum number of nodes that the managed node group can scale in to.
+    Type: String
+
+  InstanceTypes:
+    Description: The minimum number of nodes that the managed node group can scale in to.
+    Type: String
+    Default: t3a.xlarge
+
+Resources:
+ 
+  LogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub '/${Client}_${Stage}-loggroup'
+ 
+  NodeInstanceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub '${Client}_${Stage}_NodeRole'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+                - ssm.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy'
+        - 'arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy'
+        - 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly'
+        - 'arn:aws:iam::aws:policy/AmazonSSMFullAccess'
+        - 'arn:aws:iam::aws:policy/AdministratorAccess'
+
+  EKSNodeGroup:
+    Type: 'AWS::EKS::Nodegroup'
+    Properties:
+      AmiType: !Ref AmiTypeInstance
+      InstanceTypes:
+        - !Ref InstanceTypes
+      ClusterName: !Sub ${Client}-${Stage}-eks
+      NodegroupName: !Sub '${Client}_${Stage}_NodeGroup'
+      NodeRole: !GetAtt NodeInstanceRole.Arn
+      ScalingConfig:
+        DesiredSize: !Ref DesiredSize
+        MaxSize: !Ref MaxSize
+        MinSize: !Ref MinSize
+      Subnets:
+        - 'Fn::ImportValue': !Sub '${Client}-${Stage}-PrivateSubnet1'
+        - 'Fn::ImportValue': !Sub '${Client}-${Stage}-PrivateSubnet2'
+  
+  SsmNodeRole:
+    Type: 'AWS::SSM::Parameter'
+    Properties:
+      Name: !Sub '/${Client}/${Stage}/NODES/ROLE_ARN'
+      Value: !GetAtt NodeInstanceRole.Arn
+      Type: String
+
+Outputs:
+ 
+  NodeInstanceRole:
+    Description: The node instance role
+    Value: !GetAtt NodeInstanceRole.Arn
+    Export:
+      Name: !Sub '${Client}-${Stage}-NodeInstanceRole'

@@ -1,0 +1,64 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployment-app
+  namespace: app
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: app
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: app
+    spec:
+      containers:
+      - image: 993619579/nodechat
+        imagePullPolicy: Always
+        name: app
+        ports:
+        - containerPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-app
+  namespace: app
+spec:
+  type: NodePort
+  ports:
+    - port: 3000
+      nodePort: 30000
+  selector:
+    app.kubernetes.io/name: app
+
+---
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+  namespace: app
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-blueirect: "false"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - host: "hostname"
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/"
+        backend:
+          service:
+            name: service-app
+            port:
+              number: 3000

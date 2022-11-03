@@ -1,0 +1,277 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Sets Up EKS Cluster VPC
+Parameters:
+
+  Client:
+    Type: String
+
+  Environment:
+    Type: String
+  
+  CidrIp:
+    Type: String
+    Default: 10.10.0.0
+  
+  IpSubnet1:
+    Type: String
+    Default: 10.10.30.0
+  
+  IpSubnet2:
+    Type: String
+    Default: 10.10.40.0	
+  
+  IpSubnet3:
+    Type: String
+    Default: 10.10.10.0
+  
+  IpSubnet4:
+    Type: String
+    Default: 10.10.20.0
+  
+  IpSubnet5:
+    Type: String
+    Default: 10.10.50.0
+
+Resources:
+  InternalAccessSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      VpcId: !Ref VPC
+      GroupName: !Sub '${Client}_${Environment}_AllowInternalAccess'
+      GroupDescription: Enables access to all VPC protocols and IPs
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: !Sub '${CidrIp}/16'
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 10.10.0.0/16
+
+  VPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.10.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${Client}_${Environment}_VPC'
+
+  InternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${Client}_${Environment}_IGVPC'
+
+  AttachGateway:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${Client}_${Environment}_PublicRouteTable'
+
+  PublicRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Sub '${IpSubnet1}/24'
+      AvailabilityZone:
+        'Fn::Select':
+          - 0
+          - !GetAZs ''
+      Tags:
+        - Key: Name
+          Value: !Sub '${Client}_${Environment}_PublicSubnet1'
+        - Key: kubernetes.io/role/elb
+          Value: 1
+
+  PublicSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Sub '${IpSubnet2}/24'
+      AvailabilityZone:
+        'Fn::Select':
+          - 1
+          - !GetAZs ''
+      Tags:
+        - Key: Name
+          Value: !Sub '${Client}_${Environment}_PublicSubnet2'
+        - Key: kubernetes.io/role/elb
+          Value: 1
+
+  PublicSubnet3:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Sub '${IpSubnet3}/24'
+      AvailabilityZone:
+        'Fn::Select':
+          - 1
+          - !GetAZs ''
+      Tags:
+        - Key: Name
+          Value: !Sub '${Client}_${Environment}_PublicSubnet3'
+        - Key: kubernetes.io/role/elb
+          Value: 1
+
+  PublicSubnet1Association:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2Association:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet3Association:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PublicSubnet3
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Sub '${IpSubnet5}/24'
+      AvailabilityZone:
+        'Fn::Select':
+          - 0
+          - 'Fn::GetAZs': !Ref 'AWS::Region'
+      Tags:
+        - Key: Name
+          Value: !Sub '${Client}_${Environment}_PrivateSubnet1'
+        - Key: !Sub 'kubernetes.io/cluster/${Environment}-eks'
+          Value: shared
+        - Key: kubernetes.io/role/internal-elb
+          Value: 1
+
+  PrivateSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Sub '${IpSubnet4}/24'
+      AvailabilityZone:
+        'Fn::Select':
+          - 1
+          - 'Fn::GetAZs': !Ref 'AWS::Region'
+      Tags:
+        - Key: Name
+          Value: !Sub '${Client}_${Environment}_PrivateSubnet2'
+        - Key: !Sub 'kubernetes.io/cluster/${Environment}-eks'
+          Value: shared
+        - Key: kubernetes.io/role/internal-elb
+          Value: 1
+
+  EIP:
+    Type: 'AWS::EC2::EIP'
+    DependsOn: InternetGateway
+    Properties:
+      Domain: vpc
+
+  NatGateway:
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      AllocationId: !Sub '${EIP.AllocationId}'
+
+  ControlPlaneSecurityGroupVPC:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Cluster communication with worker nodes
+      VpcId: !Ref VPC
+
+  PrivateRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${Client}_${Environment}_PrivateRouteTable'
+
+  PrivateRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      RouteTableId: !Ref PrivateRouteTable
+      NatGatewayId: !Ref NatGateway
+
+  PrivateSubnet1Association:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnet2Association:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+Outputs:
+  
+  VPCId:
+    Value: !Ref VPC
+    Export:
+      Name: !Sub '${Client}-${Environment}-VPC'
+
+  PublicSubnet1:
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: !Sub '${Client}-${Environment}-PublicSubnet1'
+  
+  PublicSubnet2:
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: !Sub '${Client}-${Environment}-PublicSubnet2'
+  
+  PublicSubnet3:
+    Value: !Ref PublicSubnet3
+    Export:
+      Name: !Sub '${Client}-${Environment}-PublicSubnet3'
+  
+  PrivateSubnet1:
+    Value: !Ref PrivateSubnet1
+    Export:
+      Name: !Sub '${Client}-${Environment}-PrivateSubnet1'
+  
+  PrivateSubnet2:
+    Value: !Ref PrivateSubnet2
+    Export:
+      Name: !Sub '${Client}-${Environment}-PrivateSubnet2'
+  
+  SecurityGroupVpc:
+    Value: !Ref ControlPlaneSecurityGroupVPC
+    Export:
+      Name: !Sub '${Client}-${Environment}-ControlPlaneSG'
+  
+  InternalAccessSecurityGroup:
+    Value: !Ref InternalAccessSecurityGroup
+    Export:
+      Name: !Sub '${Client}-${Environment}-InternalAccessSecurityGroup'
+  
+  PublicRouteTable:
+    Value: !Ref PublicRouteTable
+    Export:
+      Name: !Sub '${Client}-${Environment}-PublicRouteTable'
